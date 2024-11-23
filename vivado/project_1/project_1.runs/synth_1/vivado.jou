@@ -1,0 +1,14 @@
+#-----------------------------------------------------------
+# Vivado v2023.2 (64-bit)
+# SW Build 4029153 on Fri Oct 13 20:13:54 MDT 2023
+# IP Build 4028589 on Sat Oct 14 00:45:43 MDT 2023
+# SharedData Build 4025554 on Tue Oct 10 17:18:54 MDT 2023
+# Start of session at: Tue Aug 13 22:49:33 2024
+# Process ID: 10343
+# Current directory: /home/jam/Downloads/chisel/vivado/project_1/project_1.runs/synth_1
+# Command line: vivado -log CMVM.vds -product Vivado -mode batch -messageDb vivado.pb -notrace -source CMVM.tcl
+# Log file: /home/jam/Downloads/chisel/vivado/project_1/project_1.runs/synth_1/CMVM.vds
+# Journal file: /home/jam/Downloads/chisel/vivado/project_1/project_1.runs/synth_1/vivado.jou
+# Running On: jam-Precision-5510, OS: Linux, CPU Frequency: 3588.234 MHz, CPU Physical cores: 4, Host memory: 16397 MB
+#-----------------------------------------------------------
+source CMVM.tcl -notrace

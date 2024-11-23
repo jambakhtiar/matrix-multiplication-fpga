@@ -1,0 +1,127 @@
+//> using scala "2.13.12"
+//> using dep "org.chipsalliance::chisel:6.5.0"
+//> using plugin "org.chipsalliance:::chisel-plugin:6.5.0"
+//> using options "-unchecked", "-deprecation", "-language:reflectiveCalls", "-feature", "-Xcheckinit", "-Xfatal-warnings", "-Ywarn-dead-code", "-Ywarn-unused", "-Ymacro-annotations"
+
+import chisel3._
+import _root_.circt.stage.ChiselStage
+import scala.io.Source // Import for reading files
+
+// Module for performing shift and add/subtract operations
+class ShiftAddFBlock extends Module {
+  val io = IO(new Bundle {
+    val v = Input(UInt(32.W))     // Input value
+    val shift = Input(UInt(5.W))  // Shift amount
+    val addSub = Input(Bool())    // Add or subtract flag
+    val z = Output(UInt(32.W))    // Output result
+  })
+
+  val shifted = (io.v << io.shift)(31, 0) // Shift operation
+  io.z := Mux(io.addSub, io.v + shifted, io.v - shifted) // Add or subtract based on addSub flag
+}
+
+// Module to chain multiple ShiftAddFBlocks
+class FBlock(factors: Array[(Int, Boolean)]) extends Module {
+  require(factors.nonEmpty, "Factors array must not be empty")
+
+  val io = IO(new Bundle {
+    val v = Input(UInt(32.W))     // Input value
+    val result = Output(UInt(32.W)) // Output result
+  })
+
+  val numFactors = factors.length
+  val shiftAddBlocks = Seq.fill(numFactors)(Module(new ShiftAddFBlock))
+
+  // Connect the first block to the input
+  shiftAddBlocks.head.io.v := io.v
+  shiftAddBlocks.head.io.shift := factors.head._1.U
+  shiftAddBlocks.head.io.addSub := factors.head._2.B
+
+  // Chain subsequent blocks
+  for (i <- 1 until numFactors) {
+    shiftAddBlocks(i).io.v := shiftAddBlocks(i - 1).io.z
+    shiftAddBlocks(i).io.shift := factors(i)._1.U
+    shiftAddBlocks(i).io.addSub := factors(i)._2.B
+  }
+
+  io.result := shiftAddBlocks.last.io.z // Output the result of the last block
+}
+
+// Module to handle multiple FBlocks for matrix-vector multiplication
+class CMVMBlockWithShiftAdd(sliceFactors: Array[Array[(Int, Boolean)]]) extends Module {
+  require(sliceFactors.nonEmpty, "sliceFactors array must not be empty")
+
+  val io = IO(new Bundle {
+    val v = Input(Vec(4, UInt(32.W))) // Vector of input values
+    val result = Output(UInt(32.W))   // Output result
+  })
+
+  val validSliceFactors = sliceFactors.filter(_.nonEmpty)
+  require(validSliceFactors.nonEmpty, "All sliceFactors arrays must contain at least one factor")
+
+  val fBlocks = validSliceFactors.map { factors =>
+    Module(new FBlock(factors))
+  }
+
+  // Connect each FBlock to the corresponding input vector element
+  val sliceResults = fBlocks.zipWithIndex.map { case (block, i) =>
+    block.io.v := io.v(i)
+    block.io.result
+  }
+
+  io.result := sliceResults.reduce(_ + _) // Sum all results
+}
+
+// Top-level module to read factor data and build the processing blocks
+class TopModule(sliceFactors: Array[Array[Array[(Int, Boolean)]]]) extends Module {
+  val io = IO(new Bundle {
+    val v = Input(Vec(4, UInt(32.W))) // Vector of input values
+    val result = Output(UInt(32.W))   // Output result
+  })
+
+  require(sliceFactors.nonEmpty, "sliceFactors array must not be empty")
+
+  val flattenedFactors = sliceFactors.flatten
+  require(flattenedFactors.exists(_.nonEmpty), "At least one sliceFactors array must contain factors")
+
+  val cmvmBlock = Module(new CMVMBlockWithShiftAdd(flattenedFactors))
+  cmvmBlock.io.v := io.v
+  io.result := cmvmBlock.io.result
+}
+
+object Main extends App {
+  // Function to read factors from CSV files
+  def readFactorsFromCSV(filePath: String): Array[(Int, Boolean)] = {
+    val bufferedSource = Source.fromFile(filePath)
+    val factors = bufferedSource.getLines().flatMap { line =>
+      val columns = line.split(",").map(_.trim)
+      if (columns.length != 2) {
+        None
+      } else {
+        try {
+          val pos = columns(0).toDouble.toInt
+          val sign = columns(1).toDouble.toInt == 1
+          Some((pos, sign))
+        } catch {
+          case _: NumberFormatException =>
+            None
+        }
+      }
+    }.toArray
+    bufferedSource.close()
+    factors
+  }
+
+  // Read factors from CSV files for each slice and factor
+  val sliceFactors = Array(
+    Array.tabulate(10)(i => readFactorsFromCSV(s"factor_1_${i + 1}.csv")), // Slice 1 factors from 1 to 10
+    Array.tabulate(10)(i => readFactorsFromCSV(s"factor_2_${i + 1}.csv"))  // Slice 2 factors from 1 to 10
+  )
+
+  // Emit SystemVerilog
+  println(
+    ChiselStage.emitSystemVerilog(
+      new TopModule(sliceFactors)
+    )
+  )
+}
